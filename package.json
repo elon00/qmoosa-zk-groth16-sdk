@@ -12,8 +12,8 @@
     "prepare": "npm run build"
   },
   "dependencies": {
-    "@qmoosa/zk-groth16-protocol": "file:../qmoosa-zk-groth16-protocol/qmoosa-zk-groth16-protocol-1.0.0.tgz",
-    "@qmoosa/zk-groth16-engine": "file:../qmoosa-zk-groth16-engine/qmoosa-zk-groth16-engine-1.0.0.tgz"
+    "@qmoosa/zk-groth16-protocol": "file:../qmoosa-zk-groth16-protocol",
+    "@qmoosa/zk-groth16-engine": "file:../qmoosa-zk-groth16-engine"
   },
   "devDependencies": {
     "@types/node": "^20.12.7",
