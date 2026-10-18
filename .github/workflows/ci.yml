@@ -1,0 +1,63 @@
+name: Groth16 Zero-Knowledge SDK CI Gate
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sdk repository
+        uses: actions/checkout@v4
+        with:
+          path: qmoosa-zk-groth16-sdk
+
+      - name: Checkout protocol repository (Pinned Commit)
+        uses: actions/checkout@v4
+        with:
+          repository: elon00/qmoosa-zk-groth16-protocol
+          ref: 9b7f29227196b57f2c3d9f52cb123f72c5fd6afc
+          path: qmoosa-zk-groth16-protocol
+
+      - name: Checkout engine repository (Pinned Commit)
+        uses: actions/checkout@v4
+        with:
+          repository: elon00/qmoosa-zk-groth16-engine
+          ref: d519f22620f96d7f1a9809dcb8d112e4ea34a98b
+          path: qmoosa-zk-groth16-engine
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build protocol and engine repositories
+        run: |
+          cd qmoosa-zk-groth16-protocol
+          npm install
+          npm run build
+          npm pack
+          cd ../qmoosa-zk-groth16-engine
+          npm install
+          npm run build
+          npm pack
+
+      - name: Install dependencies in sdk repository
+        working-directory: qmoosa-zk-groth16-sdk
+        run: |
+          npm install
+
+      - name: Compile TypeScript
+        working-directory: qmoosa-zk-groth16-sdk
+        run: npm run build
+
+      - name: Run SDK Verification Tests
+        working-directory: qmoosa-zk-groth16-sdk
+        run: npm test
+
+      - name: Syntax & Type Check
+        working-directory: qmoosa-zk-groth16-sdk
+        run: npm run lint
