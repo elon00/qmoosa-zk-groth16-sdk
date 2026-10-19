@@ -139,7 +139,11 @@ export class Groth16Client {
     if (typeof val === 'bigint') {
       scalar = val;
     } else if (typeof val === 'string') {
-      scalar = BigInt(val.trim());
+      const trimmed = val.trim();
+      if (trimmed.length === 0) {
+        throw new Error('INVALID_STRING_SCALAR: Public input must not be blank');
+      }
+      scalar = BigInt(trimmed);
     } else if (typeof val === 'number') {
       if (!Number.isSafeInteger(val) || val < 0) {
         throw new Error(`INVALID_NUMERIC_SCALAR: ${val} must be non-negative safe integer`);

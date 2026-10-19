@@ -13,3 +13,9 @@ npm run build
 npm test
 npm run lint
 ```
+
+## Public input validation and genuine-proof tests
+
+Blank strings are rejected instead of being coerced to zero. Explicit zero (0, 0n, "0", "0x0") and trimmed nonempty strings remain supported. Verification and calldata export share this validation.
+
+The added suite imports real snarkjs Groth16 proof/key artifacts, verifies normal and zero public inputs, rejects changed inputs, and verifies an exported calldata round trip. Fixture provenance is in tests/fixtures/groth16/provenance.json. Setup keys are test-only. CI pins the tested engine development commit 001b1ee757fa19f47eccb7f7e4c573c77cd4c668 from engine PR #1; normal review/integration and independent security review remain separate. Calldata round trips do not constitute an on-chain deployment.

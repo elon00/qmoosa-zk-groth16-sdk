@@ -7,7 +7,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test tests/sdk.test.mjs",
+    "test": "npm run build && node --test tests/sdk.test.mjs tests/genuine-proof.test.mjs",
     "lint": "tsc --noEmit",
     "prepare": "npm run build"
   },

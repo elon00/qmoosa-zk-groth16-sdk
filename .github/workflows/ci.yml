@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: elon00/qmoosa-zk-groth16-engine
-          ref: d519f22620f96d7f1a9809dcb8d112e4ea34a98b
+          ref: 001b1ee757fa19f47eccb7f7e4c573c77cd4c668
           path: qmoosa-zk-groth16-engine
 
       - name: Setup Node.js
