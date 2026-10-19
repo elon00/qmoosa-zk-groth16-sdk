@@ -73,7 +73,7 @@ export class Groth16Client {
       }
     };
 
-    const inputs = calldata.input.map(s => BigInt(s));
+    const inputs = calldata.input.map(Groth16Client.parseScalar);
     return this.engine.verifyProof(vk, proof, inputs);
   }
 

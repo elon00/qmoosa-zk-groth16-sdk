@@ -25,6 +25,9 @@ for (const missing of ['', ' ', '\t\n']) {
     inputs[index] = missing;
     assert.throws(() => client.verify(vk, zeroProof, inputs), /INVALID_STRING_SCALAR/);
     assert.throws(() => client.exportCalldata(zeroProof, inputs), /INVALID_STRING_SCALAR/);
+    const calldata = client.exportCalldata(zeroProof, zeroInputs);
+    calldata.input[index] = missing;
+    assert.throws(() => client.verifyCalldata(vk, calldata), /INVALID_STRING_SCALAR/);
   });
 }
 test('explicit zero forms and trimmed nonempty strings remain accepted', () => {
