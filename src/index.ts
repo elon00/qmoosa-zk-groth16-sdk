@@ -7,6 +7,7 @@
 
 import {
   proofToCalldata,
+  BN254_FIELD_MODULUS_Q,
   validateScalarFieldElement,
   type G1Point,
   type G2Point,
@@ -18,6 +19,62 @@ import { Groth16Engine } from '@qmoosa/zk-groth16-engine';
 
 export * from '@qmoosa/zk-groth16-protocol';
 export * from '@qmoosa/zk-groth16-engine';
+
+type Artifact = Record<string, unknown>;
+
+function invalidArtifact(prefix: string, message: string): never {
+  throw new Error(prefix + ': ' + message);
+}
+function readArtifact(value: unknown, prefix: string): Artifact {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    invalidArtifact(prefix, 'Expected an artifact object');
+  }
+  const artifact = value as Artifact;
+  if (artifact.protocol !== undefined && artifact.protocol !== 'groth16') {
+    invalidArtifact(prefix, 'Unsupported protocol');
+  }
+  if (artifact.curve !== undefined && artifact.curve !== 'bn128' && artifact.curve !== 'bn254') {
+    invalidArtifact(prefix, 'Unsupported curve');
+  }
+  return artifact;
+}
+function readArray(value: unknown, lengths: readonly number[], prefix: string, label: string): unknown[] {
+  if (!Array.isArray(value) || !lengths.includes(value.length)) {
+    invalidArtifact(prefix, label + ' has an invalid coordinate shape');
+  }
+  return value;
+}
+function readCoordinate(value: unknown, prefix: string): bigint {
+  let coordinate: bigint;
+  if (typeof value === 'bigint') coordinate = value;
+  else if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) coordinate = BigInt(value);
+  else if (typeof value === 'string' && /^(?:[0-9]+|0[xX][0-9a-fA-F]+)$/.test(value.trim())) coordinate = BigInt(value.trim());
+  else invalidArtifact(prefix, 'Coordinates must be non-negative integers without coercion');
+  if (coordinate < 0n || coordinate >= BN254_FIELD_MODULUS_Q) {
+    invalidArtifact(prefix, 'Coordinate exceeds the BN254 base field');
+  }
+  return coordinate;
+}
+function readG1(value: unknown, prefix: string, label: string, allowMarker = true): G1Point {
+  const point = readArray(value, allowMarker ? [2, 3] : [2], prefix, label);
+  if (point.length === 3 && readCoordinate(point[2], prefix) !== 1n) {
+    invalidArtifact(prefix, label + ' must use affine coordinates with Z=1');
+  }
+  return { x: readCoordinate(point[0], prefix), y: readCoordinate(point[1], prefix) };
+}
+function readG2(value: unknown, prefix: string, label: string, allowMarker = true): G2Point {
+  const point = readArray(value, allowMarker ? [2, 3] : [2], prefix, label);
+  const x = readArray(point[0], [2], prefix, label + '.x');
+  const y = readArray(point[1], [2], prefix, label + '.y');
+  if (point.length === 3) {
+    const z = readArray(point[2], [2], prefix, label + '.z');
+    if (readCoordinate(z[0], prefix) !== 1n || readCoordinate(z[1], prefix) !== 0n) {
+      invalidArtifact(prefix, label + ' must use affine coordinates with Z=[1,0]');
+    }
+  }
+  return { x: [readCoordinate(x[0], prefix), readCoordinate(x[1], prefix)],
+    y: [readCoordinate(y[0], prefix), readCoordinate(y[1], prefix)] };
+}
 
 export class Groth16Client {
   private readonly engine: Groth16Engine;
@@ -57,21 +114,15 @@ export class Groth16Client {
     vk: Groth16VerifyingKey,
     calldata: Groth16Calldata
   ): boolean {
-    // Calldata G2 ordering per EIP-197 is: b[0] = [X1, X0], b[1] = [Y1, Y0]
-    const proof: Groth16Proof = {
-      a: {
-        x: BigInt(calldata.a[0]),
-        y: BigInt(calldata.a[1])
-      },
-      b: {
-        x: [BigInt(calldata.b[0][1]), BigInt(calldata.b[0][0])],
-        y: [BigInt(calldata.b[1][1]), BigInt(calldata.b[1][0])]
-      },
-      c: {
-        x: BigInt(calldata.c[0]),
-        y: BigInt(calldata.c[1])
-      }
-    };
+    const prefix = 'INVALID_GROTH16_CALLDATA';
+    if (!calldata || typeof calldata !== 'object' || !Array.isArray(calldata.input)) {
+      invalidArtifact(prefix, 'Expected calldata with a public input array');
+    }
+    const a = readG1(calldata.a, prefix, 'a', false);
+    const b = readG2(calldata.b, prefix, 'b', false);
+    const c = readG1(calldata.c, prefix, 'c', false);
+    // EIP-197 calldata uses [c1,c0]; the engine uses [c0,c1].
+    const proof: Groth16Proof = { a, b: { x: [b.x[1], b.x[0]], y: [b.y[1], b.y[0]] }, c };
 
     const inputs = calldata.input.map(Groth16Client.parseScalar);
     return this.engine.verifyProof(vk, proof, inputs);
@@ -80,58 +131,29 @@ export class Groth16Client {
   /**
    * Parses snarkjs proof.json format into a canonical Groth16Proof.
    */
-  public parseSnarkJsProof(json: any): Groth16Proof {
-    if (!json.pi_a || !json.pi_b || !json.pi_c) {
-      throw new Error('INVALID_SNARKJS_PROOF: Missing pi_a, pi_b, or pi_c');
-    }
-
-    return {
-      a: {
-        x: BigInt(json.pi_a[0]),
-        y: BigInt(json.pi_a[1])
-      },
-      b: {
-        // snarkjs pi_b format is [[X0, X1], [Y0, Y1], ...]
-        x: [BigInt(json.pi_b[0][0]), BigInt(json.pi_b[0][1])],
-        y: [BigInt(json.pi_b[1][0]), BigInt(json.pi_b[1][1])]
-      },
-      c: {
-        x: BigInt(json.pi_c[0]),
-        y: BigInt(json.pi_c[1])
-      }
-    };
+  public parseSnarkJsProof(json: unknown): Groth16Proof {
+    const prefix = 'INVALID_SNARKJS_PROOF';
+    const artifact = readArtifact(json, prefix);
+    return { a: readG1(artifact.pi_a, prefix, 'pi_a'),
+      b: readG2(artifact.pi_b, prefix, 'pi_b'), c: readG1(artifact.pi_c, prefix, 'pi_c') };
   }
 
-  /**
-   * Parses snarkjs verification_key.json into a canonical Groth16VerifyingKey.
-   */
-  public parseSnarkJsVk(json: any): Groth16VerifyingKey {
-    if (!json.vk_alpha_1 || !json.vk_beta_2 || !json.vk_gamma_2 || !json.vk_delta_2 || !json.IC) {
-      throw new Error('INVALID_SNARKJS_VK: Missing required key parameters');
+  /** Parses an affine snarkjs BN254 Groth16 verification key. */
+  public parseSnarkJsVk(json: unknown): Groth16VerifyingKey {
+    const prefix = 'INVALID_SNARKJS_VK';
+    const artifact = readArtifact(json, prefix);
+    if (!Array.isArray(artifact.IC) || artifact.IC.length === 0) {
+      invalidArtifact(prefix, 'IC must be a nonempty point array');
     }
-
-    return {
-      alpha1: {
-        x: BigInt(json.vk_alpha_1[0]),
-        y: BigInt(json.vk_alpha_1[1])
-      },
-      beta2: {
-        x: [BigInt(json.vk_beta_2[0][0]), BigInt(json.vk_beta_2[0][1])],
-        y: [BigInt(json.vk_beta_2[1][0]), BigInt(json.vk_beta_2[1][1])]
-      },
-      gamma2: {
-        x: [BigInt(json.vk_gamma_2[0][0]), BigInt(json.vk_gamma_2[0][1])],
-        y: [BigInt(json.vk_gamma_2[1][0]), BigInt(json.vk_gamma_2[1][1])]
-      },
-      delta2: {
-        x: [BigInt(json.vk_delta_2[0][0]), BigInt(json.vk_delta_2[0][1])],
-        y: [BigInt(json.vk_delta_2[1][0]), BigInt(json.vk_delta_2[1][1])]
-      },
-      ic: json.IC.map((pt: any) => ({
-        x: BigInt(pt[0]),
-        y: BigInt(pt[1])
-      }))
-    };
+    const ic = Array.from(artifact.IC, (point, index) => readG1(point, prefix, 'IC[' + index + ']'));
+    if (artifact.nPublic !== undefined &&
+        (typeof artifact.nPublic !== 'number' || !Number.isSafeInteger(artifact.nPublic) || artifact.nPublic < 0 || artifact.nPublic !== ic.length - 1)) {
+      invalidArtifact(prefix, 'nPublic must match the IC public input count');
+    }
+    return { alpha1: readG1(artifact.vk_alpha_1, prefix, 'vk_alpha_1'),
+      beta2: readG2(artifact.vk_beta_2, prefix, 'vk_beta_2'),
+      gamma2: readG2(artifact.vk_gamma_2, prefix, 'vk_gamma_2'),
+      delta2: readG2(artifact.vk_delta_2, prefix, 'vk_delta_2'), ic };
   }
 
   private static parseScalar(val: bigint | string | number): bigint {
